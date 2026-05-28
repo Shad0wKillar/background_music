@@ -16,7 +16,7 @@ from typing import Any
 from bgmusic.actions import (
     keyboard_volume_down, keyboard_volume_up,
     next_track, previous_track,
-    toggle_keyboard_sounds, toggle_loop, toggle_mute, toggle_music,
+    toggle_keyboard_sounds, toggle_loop, toggle_mute, toggle_music, toggle_repeat,
     volume_down, volume_up,
 )
 from bgmusic.config import bool_setting, float_setting, int_setting, resolve_project_path
@@ -255,6 +255,7 @@ def start_keyboard_features(
         "next_track":             next_track,
         "previous_track":         previous_track,
         "toggle_loop":            lambda: toggle_loop(config, store),
+        "toggle_repeat":          lambda: toggle_repeat(config, store),
         "toggle_keyboard_sounds": lambda: toggle_keyboard_sounds(config, sound_player, store),
         "volume_up":              lambda: volume_up(config, store),
         "volume_down":            lambda: volume_down(config, store),

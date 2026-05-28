@@ -88,7 +88,7 @@ def discover_music_files(music_dir: Path, extensions: set[str]) -> list[Path]:
 # ---------------------------------------------------------------------------
 
 def build_mpv_command(
-    music_files: list[Path], loop_enabled: bool, shuffle: bool
+    music_files: list[Path], loop_enabled: bool, shuffle: bool, repeat: bool = False
 ) -> list[str]:
     """Return the full mpv argv list for the given playlist and options."""
     command = [
@@ -98,6 +98,7 @@ def build_mpv_command(
         "--idle=yes",
         f"--audio-client-name={MY_APP_NAME}",
         f"--loop-playlist={'inf' if loop_enabled else 'no'}",
+        f"--loop-file={'inf' if repeat else 'no'}",
         "--volume-max=100",          # hard cap — matches our Python-side clamping
     ]
     if shuffle:

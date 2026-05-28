@@ -7,6 +7,7 @@ hotkeys:
   next_track: "super+]"
   previous_track: "super+["
   toggle_loop: "super+l"
+  toggle_repeat: "super+r"
 
   toggle_keyboard_sounds: "super+m"
   volume_up: "super+="
@@ -18,6 +19,7 @@ hotkeys:
 music:
   directory: music
   loop: true
+  repeat: false
   shuffle: false
   volume_step: 5
   supported_extensions:

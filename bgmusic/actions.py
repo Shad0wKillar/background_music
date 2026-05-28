@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from bgmusic.config import clamp, float_setting
-from bgmusic.ipc import get_mpv_property, send_ipc_command, set_mpv_loop, set_mpv_pause
+from bgmusic.ipc import get_mpv_property, send_ipc_command, set_mpv_loop, set_mpv_pause, set_mpv_repeat
 from bgmusic.state import get_state, update_state
 
 if TYPE_CHECKING:
@@ -61,6 +61,16 @@ def toggle_loop(config: dict[str, Any], store: SettingsStore | None = None) -> N
     print(f"Playlist loop: {enabled}")
     if store is not None:
         store.set("loop", enabled)
+
+
+def toggle_repeat(config: dict[str, Any], store: SettingsStore | None = None) -> None:
+    current = get_state(config)
+    enabled = not current["repeat"]
+    update_state(config, repeat=enabled)
+    set_mpv_repeat(enabled)
+    print(f"Song repeat: {enabled}")
+    if store is not None:
+        store.set("repeat", enabled)
 
 
 # ---------------------------------------------------------------------------

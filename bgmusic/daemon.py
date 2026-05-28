@@ -21,7 +21,7 @@ from bgmusic.config import bool_setting, clamp, float_setting, load_config, reso
 from bgmusic.constants import CHECK_INTERVAL, SETTINGS_FILE, SOCKET_PATH, STATE_FILE
 from bgmusic.debug import DebugLogger
 from bgmusic.hotkeys import start_keyboard_features
-from bgmusic.ipc import get_mpv_property, send_ipc_command, set_mpv_loop, set_mpv_pause
+from bgmusic.ipc import get_mpv_property, send_ipc_command, set_mpv_loop, set_mpv_pause, set_mpv_repeat
 from bgmusic.music import (
     MusicDebugTracker, build_mpv_command, configured_music_extensions,
     discover_music_files, setup_pipewire_quantum, _apply_pipewire_force_quantum,
@@ -58,10 +58,12 @@ def _restore_from_settings(
     store: SettingsStore,
     music_files: list[Path],
     loop_enabled: bool,
+    repeat_enabled: bool,
     logger: DebugLogger,
 ) -> None:
     """Apply saved volume and last-track to the running mpv process."""
     set_mpv_loop(loop_enabled)
+    set_mpv_repeat(repeat_enabled)
 
     saved_vol = store.get("music_volume", 100.0)
     if saved_vol != 100.0:
@@ -92,6 +94,7 @@ def _snapshot_final_state(
     store.set("keyboard_volume", cur_state.get("keyboard_volume", store.get("keyboard_volume", 1.0)))
     store.set("keyboard_sounds_enabled", cur_state.get("keyboard_sounds_enabled", store.get("keyboard_sounds_enabled", True)))
     store.set("loop", cur_state.get("loop", store.get("loop", True)))
+    store.set("repeat", cur_state.get("repeat", store.get("repeat", False)))
 
 
 # ---------------------------------------------------------------------------
@@ -125,6 +128,7 @@ def handle_start(args: Any) -> None:
     store = SettingsStore.load(SETTINGS_FILE, config)
     logger.log(
         f"settings: loop={store.get('loop')} "
+        f"repeat={store.get('repeat', False)} "
         f"kb_sounds={store.get('keyboard_sounds_enabled')} "
         f"kb_vol={store.get('keyboard_volume', 1.0) * 100:.0f}% "
         f"music_vol={store.get('music_volume', 100.0):.0f}% "
@@ -142,6 +146,7 @@ def handle_start(args: Any) -> None:
         logger.log(f"  {i}. {p}")
 
     loop_enabled = store.get("loop")
+    repeat_enabled = store.get("repeat", False)
     shuffle = bool_setting(config["music"].get("shuffle"), False)
     if getattr(args, "shuffle", None):
         shuffle = True
@@ -150,14 +155,15 @@ def handle_start(args: Any) -> None:
     set_state({
         "manual_pause": False,
         "loop": store.get("loop"),
+        "repeat": store.get("repeat", False),
         "keyboard_sounds_enabled": store.get("keyboard_sounds_enabled"),
         "keyboard_volume": store.get("keyboard_volume"),
     })
     if SOCKET_PATH.exists():
         SOCKET_PATH.unlink()
 
-    command = build_mpv_command(music_files, loop_enabled, shuffle)
-    print(f"Starting mpv with {len(music_files)} track(s) (shuffle: {shuffle}, loop: {loop_enabled})...")
+    command = build_mpv_command(music_files, loop_enabled, shuffle, repeat=repeat_enabled)
+    print(f"Starting mpv with {len(music_files)} track(s) (shuffle: {shuffle}, loop: {loop_enabled}, repeat: {repeat_enabled})...")
     try:
         mpv_process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except FileNotFoundError as error:
@@ -167,7 +173,7 @@ def handle_start(args: Any) -> None:
     logger.log(f"ignoring audio process ids: python={os.getpid()}, mpv={mpv_process.pid}")
 
     _wait_for_mpv_socket(logger)
-    _restore_from_settings(store, music_files, loop_enabled, logger)
+    _restore_from_settings(store, music_files, loop_enabled, repeat_enabled, logger)
 
     pre_sink_indexes = snapshot_sink_indexes(logger)
     sound_player, keyboard_monitor = start_keyboard_features(config, logger, store)

@@ -10,7 +10,7 @@ from bgmusic.actions import (
     keyboard_volume_down, keyboard_volume_up,
     list_audio_devices,
     next_track, previous_track,
-    toggle_keyboard_sounds, toggle_loop, toggle_mute, toggle_music,
+    toggle_keyboard_sounds, toggle_loop, toggle_mute, toggle_music, toggle_repeat,
     volume_down, volume_up,
 )
 from bgmusic.config import load_config
@@ -31,6 +31,8 @@ def handle_control(args: argparse.Namespace) -> None:
         previous_track()
     elif action == "loop":
         toggle_loop(config)
+    elif action == "repeat":
+        toggle_repeat(config)
     elif action == "keyboard-sounds":
         toggle_keyboard_sounds(config)
     elif action == "volume-up":
@@ -87,6 +89,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("next",                help="Skip to the next song")
     sub.add_parser("previous",            help="Skip to the previous song")
     sub.add_parser("loop",                help="Toggle playlist looping")
+    sub.add_parser("repeat",              help="Toggle single-song repeat")
     sub.add_parser("keyboard-sounds",     help="Toggle keyboard click sounds")
     sub.add_parser("volume-up",           help="Increase music volume by volume_step")
     sub.add_parser("volume-down",         help="Decrease music volume by volume_step")

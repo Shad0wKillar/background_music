@@ -45,3 +45,8 @@ def set_mpv_pause(paused: bool) -> None:
 def set_mpv_loop(enabled: bool) -> None:
     value = "inf" if enabled else "no"
     send_ipc_command({"command": ["set_property", "loop-playlist", value]})
+
+
+def set_mpv_repeat(enabled: bool) -> None:
+    value = "inf" if enabled else "no"
+    send_ipc_command({"command": ["set_property", "loop-file", value]})

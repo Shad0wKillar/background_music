@@ -72,6 +72,7 @@ class SettingsStore:
                 config["keyboard_sounds"].get("enabled"), True
             ),
             "loop": bool_setting(config["music"].get("loop"), True),
+            "repeat": bool_setting(config["music"].get("repeat"), False),
             "music_volume": 100.0,
             "last_track": None,
         }
@@ -91,6 +92,8 @@ class SettingsStore:
                         )
                     if "loop" in saved:
                         data["loop"] = bool_setting(saved["loop"], True)
+                    if "repeat" in saved:
+                        data["repeat"] = bool_setting(saved["repeat"], False)
                     if "music_volume" in saved:
                         data["music_volume"] = clamp(
                             float_setting(saved["music_volume"], 100.0), 0.0, 100.0
@@ -110,6 +113,7 @@ def default_state(config: dict[str, Any]) -> dict[str, Any]:
     return {
         "manual_pause": False,
         "loop": bool_setting(config["music"].get("loop"), True),
+        "repeat": bool_setting(config["music"].get("repeat"), False),
         "keyboard_sounds_enabled": bool_setting(
             config["keyboard_sounds"].get("enabled"), True
         ),
@@ -141,6 +145,7 @@ def get_state(config: dict[str, Any] | None = None) -> dict[str, Any]:
     # Validate / coerce every field so callers can trust the types.
     defaults["manual_pause"] = bool_setting(defaults.get("manual_pause"), False)
     defaults["loop"] = bool_setting(defaults.get("loop"), True)
+    defaults["repeat"] = bool_setting(defaults.get("repeat"), False)
     defaults["keyboard_sounds_enabled"] = bool_setting(
         defaults.get("keyboard_sounds_enabled"), True
     )

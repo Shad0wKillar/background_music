@@ -45,6 +45,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "next_track":             "super+]",
         "previous_track":         "super+[",
         "toggle_loop":            "super+l",
+        "toggle_repeat":          "super+r",
         "toggle_keyboard_sounds": "super+m",
         "volume_up":              "super+=",
         "volume_down":            "super+-",
@@ -55,6 +56,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "music": {
         "directory":            "music",
         "loop":                 True,
+        "repeat":               False,
         "shuffle":              False,
         "volume_step":          5,
         "supported_extensions": DEFAULT_MUSIC_EXTENSIONS,
@@ -89,6 +91,7 @@ HOTKEY_ACTION_LABELS: dict[str, str] = {
     "next_track":             "next track",
     "previous_track":         "previous track",
     "toggle_loop":            "toggle loop",
+    "toggle_repeat":          "toggle repeat",
     "toggle_keyboard_sounds": "toggle keyboard sounds",
     "volume_up":              "music volume up",
     "volume_down":            "music volume down",
