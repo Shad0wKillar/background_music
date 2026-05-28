@@ -1,0 +1,72 @@
+# Change this one line to make every "super+..." hotkey use another modifier.
+# Supported values: Alt, Control, Shift, Meta, Super.
+super: Alt
+
+hotkeys:
+  toggle_music: "super+p"
+  next_track: "super+]"
+  previous_track: "super+["
+  toggle_loop: "super+l"
+
+  toggle_keyboard_sounds: "super+m"
+  volume_up: "super+="
+  volume_down: "super+-"
+  toggle_mute: "super+0"
+  keyboard_volume_up: "super+shift+equal"
+  keyboard_volume_down: "super+shift+minus"
+
+music:
+  directory: music
+  loop: true
+  shuffle: false
+  volume_step: 5
+  supported_extensions:
+    - .mp3
+    - .flac
+    - .wav
+    - .ogg
+    - .opus
+    - .m4a
+    - .aac
+    - .webm
+    - .mp4
+    - .mkv
+
+audio_detection:
+  # Debug logs print app/media/binary values that can be added here.
+  # Use exact names or shell-style wildcards, such as "*Playground*".
+  ignore_app_names: []
+  ignore_media_names:
+    - MechVibes Playground
+  ignore_process_binaries: []
+
+keyboard_sounds:
+  enabled: true
+  soundpack_directory: assets
+  # Supported values: keydown, keyup, both.
+  event: keydown
+  # Recommended by the bundled soundpack. Valid practical range: 0.0 to 2.0.
+  volume: 0.5
+  volume_step: 0.1
+  max_polyphony: 32
+  # PipeWire graph quantum while bgmusic is running (frames at 48 kHz).
+  # This is the dominant latency knob: PipeWire's default quantum is 1024 frames
+  # (~21 ms), meaning the audio callback only fires every 21 ms and multiple
+  # quanta sit in the pipeline — producing 50-100 ms total perceived latency.
+  # Reducing it to 256 (~5 ms) cuts the end-to-end delay to ~15-20 ms; 128
+  # (~2.7 ms) gives ~8 ms. The setting is applied globally (affects all apps)
+  # for the lifetime of bgmusic, then restored on exit.
+  # Set to 0 to leave the system quantum unchanged.
+  pipewire_quantum: 64
+  # PortAudio stream buffer settings. These work together with pipewire_quantum:
+  # latency controls PortAudio's own ring buffer; blocksize is the callback chunk
+  # size. Keep blocksize ≤ pipewire_quantum*44100/48000. If you hear crackling,
+  # raise latency (0.010) and/or blocksize (128), or raise pipewire_quantum (512).
+  performance_preset: low_latency
+  latency: 0.002
+  blocksize: 64
+  state_sync_interval: 0.1
+  trim_leading_silence: true
+  trim_threshold_ratio: 0.02
+  trim_max_ms: 8
+  trim_preroll_ms: 0.5
