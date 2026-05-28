@@ -16,112 +16,191 @@ using the bundled CherryMX Blue soundpack in `assets/`.
 - Global keyboard shortcuts on Wayland/Linux through `evdev`.
 - Mechanical keyboard click sounds for normal typing, with overlapping playback
   for fast typing.
-- Separate volume controls for background music and keyboard click sounds.
+- Separate volume controls for background music and keyboard click sounds, both
+  hard-capped at 100 % to protect your hardware.
+- **Persistent user settings**: keyboard volume, music volume, loop toggle,
+  keyboard-sounds toggle, and the last playing track are all saved automatically.
+  The next time you start the daemon, it picks up exactly where you left off.
 - Editable YAML config for music paths, loop behavior, volumes, and hotkeys.
 - One-line `super` modifier setting so all `super+...` shortcuts can move from
   `Alt` to another modifier.
 
-## Requirements
+---
 
-System packages:
+## First-time Setup
 
-- Python 3.10 or newer
-- `uv`
-- `mpv`
-- PulseAudio or PipeWire with the PulseAudio compatibility service
-- Permission to read keyboard devices under `/dev/input` for global hotkeys and
-  keyboard sounds
+### 1. System packages
 
-Python packages are listed in `requirements.txt`.
+Install these with your package manager before anything else.
 
-## Setup
+**Arch Linux / Manjaro**
+```bash
+sudo pacman -S mpv python uv
+```
+
+**Ubuntu / Debian**
+```bash
+sudo apt install mpv python3 pipx
+pipx install uv
+```
+
+You also need PulseAudio **or** PipeWire with the PulseAudio compatibility service
+(`pipewire-pulse`). Most modern distros running GNOME, KDE, or Sway already ship
+with PipeWire + pipewire-pulse.
+
+### 2. Free-threaded Python 3.14t (recommended)
+
+The daemon uses a free-threaded (no-GIL) Python build for lowest audio latency.
+`uv` can download and manage this automatically:
 
 ```bash
-uv venv
+uv python install cpython-3.14t
+```
+
+The `.python-version` file at the project root pins this version, so `uv` picks
+it up automatically. If Python 3.14t is unavailable on your platform, the daemon
+falls back to a standard Python build with a tuned GIL switch interval — latency
+will be slightly higher but everything still works.
+
+### 3. Python dependencies
+
+```bash
+cd bg_music
+uv venv --python 3.14t   # creates .venv with free-threaded Python
 uv pip install -r requirements.txt
 ```
 
-If `mpv` is not installed, install it with your system package manager. For
-example, on Arch Linux:
+If you skip `--python 3.14t`, uv uses whichever Python the `.python-version` file
+requests (also `3.14t`).
+
+### 4. Verify the install
 
 ```bash
-sudo pacman -S mpv
+PYTHON_GIL=0 uv run python -c "import sys, yaml, numpy, sounddevice, soundfile, evdev, pulsectl; print('GIL:', sys._is_gil_enabled())"
 ```
 
-## Usage
+Expected output: `GIL: False`
 
-Start the daemon:
+### 5. Add music
+
+Put audio files in the `music/` directory (create it if it doesn't exist).
+Supported formats: `.mp3`, `.flac`, `.wav`, `.ogg`, `.opus`, `.m4a`, `.aac`,
+`.webm`, `.mp4`, `.mkv`.
+
+```bash
+mkdir -p music
+cp ~/Music/*.mp3 music/
+```
+
+### 6. Keyboard input permission
+
+Global hotkeys and keyboard sounds use `evdev`, which reads `/dev/input/event*`
+directly. Your user needs permission to do this.
+
+The simplest approach on most distros:
+```bash
+sudo usermod -aG input "$USER"
+```
+
+Then **fully log out and log back in** (a new terminal is not enough). Verify with:
+```bash
+id   # should include "input" in the groups list
+```
+
+To test without logging out:
+```bash
+newgrp input
+uv run bgmusic.py
+```
+
+If you add a udev rule instead, the app does not grab or block the keyboard — normal
+typing continues to work. See `ls -l /dev/input/event*`; expected permissions are
+`crw-rw----` with group `input`.
+
+---
+
+## Running the Daemon
+
+### Recommended (lowest latency)
+
+```bash
+./run.sh
+```
+
+`run.sh` sets `PYTHON_GIL=0` and passes all arguments through to `bgmusic.py`. This
+ensures the GIL stays off even when evdev asks to re-enable it.
+
+### Alternative (standard Python fallback)
 
 ```bash
 uv run bgmusic.py
 ```
 
-This is the same as:
+### Debug modes
 
 ```bash
-uv run python bgmusic.py start
+./run.sh --debug        # verbose playback and audio-detection logs
+./run.sh --deep-debug   # per-key latency diagnostics for the first 100 keystrokes
+./run.sh start --shuffle  # shuffle the playlist for this run only
 ```
 
-Start with debug logging:
+---
+
+## Persistent User Settings
+
+Settings are saved automatically to `bgmusic_settings.json` inside the project
+directory. The file is created on first run and updated in real time as you make
+changes. It is listed in `.gitignore` so it is never committed.
+
+The following are persisted across restarts:
+
+| Setting | Description |
+|---|---|
+| `keyboard_volume` | Volume of keyboard click sounds (0–100 %) |
+| `keyboard_sounds_enabled` | Whether keyboard sounds are on or off |
+| `loop` | Whether playlist looping is enabled |
+| `music_volume` | Background music volume (0–100 %) |
+| `last_track` | Absolute path of the last playing track |
+
+On the next start, the daemon restores all of these immediately — no 1-second
+startup delay. `last_track` is matched against the current playlist; if the file
+is still there, playback begins from that track. `manual_pause` is intentionally
+**not** saved — the daemon always starts playing.
+
+Settings are written to disk the instant anything changes (hotkey press, track
+change, etc.) using an atomic temp-file rename, so nothing is lost even if the
+process is killed with `kill -9`.
+
+---
+
+## Control Commands
+
+Run these from a second terminal while the daemon is running:
 
 ```bash
-uv run bgmusic.py --debug
+uv run bgmusic.py toggle             # pause / resume
+uv run bgmusic.py next               # skip to next track
+uv run bgmusic.py previous           # go back one track
+uv run bgmusic.py loop               # toggle playlist loop (saved automatically)
+uv run bgmusic.py keyboard-sounds    # toggle keyboard click sounds (saved)
+uv run bgmusic.py volume-up          # raise music volume by volume_step (default 5 %)
+uv run bgmusic.py volume-down        # lower music volume
+uv run bgmusic.py mute               # toggle mpv mute
+uv run bgmusic.py keyboard-volume-up    # raise keyboard click volume (saved)
+uv run bgmusic.py keyboard-volume-down  # lower keyboard click volume (saved)
+uv run bgmusic.py volume +10         # relative volume change; capped at 100 %
+uv run bgmusic.py volume -5
+uv run bgmusic.py audio-devices      # list audio output devices
 ```
 
-Start with per-key latency diagnostics:
-
-```bash
-uv run bgmusic.py --deep-debug
-```
-
-Start with shuffle for this run:
-
-```bash
-uv run python bgmusic.py start --shuffle
-```
-
-Control a running daemon from another terminal:
-
-```bash
-uv run python bgmusic.py toggle
-uv run python bgmusic.py next
-uv run python bgmusic.py previous
-uv run python bgmusic.py loop
-uv run python bgmusic.py keyboard-sounds
-uv run python bgmusic.py volume-up
-uv run python bgmusic.py volume-down
-uv run python bgmusic.py mute
-uv run python bgmusic.py keyboard-volume-up
-uv run python bgmusic.py keyboard-volume-down
-uv run python bgmusic.py volume +10
-uv run python bgmusic.py volume -5
-uv run python bgmusic.py audio-devices
-```
-
-Debug mode prints the playlist, the active track, whether music is playing or
-paused, and which Pulse/PipeWire sink input caused an auto-pause. If music stops
-unexpectedly, look for a line like `external audio detected; pausing music`.
-That line gives you the `app`, `media`, and `binary` values you can ignore in
-`config.yaml` when an app exposes a silent-but-uncorked stream.
-
-Deep debug mode prints timing for the first 100 key sounds:
-
-- `kernel->receipt`: time from Linux input event timestamp to Python receiving it.
-- `receipt->enqueue`: Python work before adding the sound to the mixer.
-- `enqueue->callback`: wait until the PortAudio callback first renders it.
-- `callback->dac`: PortAudio's estimate of remaining output-buffer latency.
-- `receipt->estimated_dac`: best in-process estimate before the audio backend.
-
-If `receipt->estimated_dac` is small but it still feels late, the remaining delay
-is likely after PortAudio, such as PipeWire/Pulse routing, Bluetooth/headset
-latency, or device buffering.
+---
 
 ## Default Hotkeys
 
-The default config calls `Alt` the `super` key:
+The default `config.yaml` maps `super` to `Alt`:
 
 | Action | Hotkey |
-| --- | --- |
+|---|---|
 | Toggle background music | `Alt+p` |
 | Next track | `Alt+]` |
 | Previous track | `Alt+[` |
@@ -133,60 +212,29 @@ The default config calls `Alt` the `super` key:
 | Keyboard volume up | `Alt+Shift+=` |
 | Keyboard volume down | `Alt+Shift+-` |
 
-To change every shortcut from `Alt` to another modifier, edit only this line in
-`config.yaml`:
+To change every shortcut to a different modifier, edit one line in `config.yaml`:
 
 ```yaml
-super: Alt
+super: Alt   # change to Control, Shift, Meta, or Super
 ```
 
-Supported values are `Alt`, `Control`, `Shift`, `Meta`, and `Super`.
-
-You can also edit individual hotkeys:
-
-```yaml
-hotkeys:
-  toggle_music: "super+p"
-  next_track: "super+]"
-  previous_track: "super+["
-  toggle_loop: "super+l"
-  toggle_keyboard_sounds: "super+m"
-  volume_up: "super+="
-  volume_down: "super+-"
-  toggle_mute: "super+0"
-  keyboard_volume_up: "super+shift+equal"
-  keyboard_volume_down: "super+shift+minus"
-```
+---
 
 ## Configuration
 
-The app reads `config.yaml` by default. You can use a different file with:
-
-```bash
-uv run python bgmusic.py --config path/to/config.yaml start
-```
-
-Important settings:
+`config.yaml` is read once at startup. Relative paths are resolved from the
+project directory.
 
 ```yaml
 music:
-  directory: music
+  directory: music        # folder scanned recursively for audio files
   loop: true
   shuffle: false
-  volume_step: 5
-  supported_extensions:
-    - .mp3
-    - .flac
-    - .wav
-    - .ogg
-    - .opus
-    - .m4a
-    - .aac
-    - .webm
-    - .mp4
-    - .mkv
+  volume_step: 5          # % per volume-up / volume-down press
 
 audio_detection:
+  # Add names here to prevent specific apps from triggering auto-pause.
+  # Values are case-insensitive and support shell wildcards like "*Playground*".
   ignore_app_names: []
   ignore_media_names:
     - MechVibes Playground
@@ -195,135 +243,80 @@ audio_detection:
 keyboard_sounds:
   enabled: true
   soundpack_directory: assets
-  event: keydown
-  volume: 0.5
+  event: keydown          # keydown | keyup | both
+  volume: 0.5             # 0.0–1.0; saved at runtime
   volume_step: 0.1
   max_polyphony: 32
+  pipewire_quantum: 32    # frames at 48 kHz; lower = less latency; 0 = leave alone
   performance_preset: low_latency
-  latency: 0.005
-  blocksize: 64
-  state_sync_interval: 0.1
+  latency: 0.001          # PortAudio ring-buffer size in seconds
+  blocksize: 32           # PortAudio frames per callback; keep ≤ pipewire_quantum
   trim_leading_silence: true
-  trim_threshold_ratio: 0.02
-  trim_max_ms: 8
-  trim_preroll_ms: 0.5
 ```
 
-Relative paths are resolved from the project directory.
+---
 
-## Keyboard Input Permissions
+## Troubleshooting
 
-Global hotkeys and keyboard sounds use `evdev`, which reads Linux input devices
-directly. This works under Wayland, but your user must be allowed to read
-`/dev/input/event*`.
+**Music does not start / no music files found**
+Make sure there are audio files in the `music/` directory (or wherever `music.directory`
+points). Run `./run.sh --debug` and look at the printed playlist.
 
-If the app prints a permission warning, use one of these approaches:
+**Music pauses unexpectedly**
+Run `./run.sh --debug`. Look for `external audio detected; pausing music: ...`.
+The `app=`, `media=`, and `binary=` values in that line identify the offending
+stream. Add the relevant value to `audio_detection.ignore_app_names` (or
+`ignore_media_names` / `ignore_process_binaries`) in `config.yaml`.
 
-- Add your user to the distro's input-related group if your system provides one.
-- Add a udev rule for your keyboard device.
-- Run the daemon with suitable permissions.
+**Keyboard sounds / hotkeys do not work**
+Check that your user is in the `input` group (`id`). If not, see
+[Keyboard Input Permission](#6-keyboard-input-permission) above.
 
-The app does not grab or block the keyboard; normal typing continues to work.
-
-On Arch-style systems, the simplest setup is usually:
-
-```bash
-sudo usermod -aG input "$USER"
-```
-
-Then fully log out and log back in. A new terminal is not enough. To test in the
-current terminal without logging out:
-
-```bash
-newgrp input
-id
-uv run bgmusic.py
-```
-
-`id` should include `input`. You can also check device ownership:
-
-```bash
-ls -l /dev/input/event*
-```
-
-Expected devices usually look like `root input` with `crw-rw----` permissions.
-Membership in `input` can read raw keyboard input system-wide, so only grant it
-to a trusted local user.
-
-## Music
-
-Put music files in `music/`. The daemon scans that folder recursively and sends
-only supported media files to `mpv`, so files like `music_names` and partial
-downloads are ignored. `.webm` is supported by default. The playlist loops by
-default; press `Alt+l` or run `uv run python bgmusic.py loop` to toggle looping
-while the daemon is running.
-
-Background music pauses for external audio sources only. The daemon ignores its
-own `mpv` stream and its own keyboard sound stream, so typing will not stop the
-music.
-
-The keyboard sound stream is also ignored by sink index when it is created at
-startup. This handles audio backends that expose the keyboard stream as a generic
-Python or PortAudio sink instead of using the configured stream name.
-
-Pulse/PipeWire's `corked` flag means a stream is open and not paused; it does
-not prove the stream is actually audible. Browsers sometimes keep silent streams
-uncorked. If debug mode shows a false-positive source, add it to:
-
-```yaml
-audio_detection:
-  ignore_app_names: []
-  ignore_media_names:
-    - MechVibes Playground
-  ignore_process_binaries: []
-```
-
-Ignore rules are case-insensitive and support shell-style wildcards like
-`"*Playground*"`. Prefer ignoring a specific `media` name over a whole browser
-app name, because ignoring `Zen` or `Firefox` would also ignore real videos.
-
-## Keyboard Soundpack
-
-The bundled files in `assets/` contain a CherryMX Blue PBT keycap soundpack:
-
-- `assets/sound.ogg` stores all key sounds in one audio file.
-- `assets/config.json` maps each key to a timing slice inside that file.
-- `assets/README.md` documents the soundpack format.
-
-The soundpack comes from MechvibesDX and is credited in `assets/README.md`.
-
-Keyboard sounds use a small mixer inside the daemon. Each key press starts a new
-slice, and active slices are summed together up to `max_polyphony`, so fast
-typing can layer clicks naturally.
-
-For lower click latency, keyboard sounds default to `performance_preset:
-low_latency`, `latency: 0.005`, and `blocksize: 64`. The daemon opens the
-low-latency stream first and falls back to `latency: low` plus `blocksize: 128`
-if the audio backend rejects it.
-
-If you hear crackling or dropouts, try:
+**Crackling or audio dropouts**
+Raise `latency` and/or `blocksize` in `config.yaml`:
 
 ```yaml
 keyboard_sounds:
-  latency: low
+  latency: 0.010
   blocksize: 128
 ```
 
-or increase `blocksize` to `256`. The delay is mostly audio backend buffering
-through PortAudio and Pulse/PipeWire, plus a few milliseconds of leading silence
-inside some key samples, not Python executing the key handler. The daemon trims
-that leading silence once at startup when `trim_leading_silence` is enabled.
+Or increase `pipewire_quantum` to `256` or `512`.
 
-To inspect output devices and their default latency values:
-
+**How do I check the actual latency?**
 ```bash
-uv run python bgmusic.py audio-devices
+./run.sh --deep-debug
 ```
 
-For deeper timing, run:
+Press a few letter keys and inspect the `[deep ...] key=...` lines:
+- `enqueue->callback`: wait for the PortAudio callback — the main tunable latency.
+- `callback->dac`: PortAudio's estimate of downstream buffering. On PipeWire/ALSA
+  virtual devices, this number (~155 ms) is a measurement artifact — ignore it.
+  Real latency is the sum of `enqueue->callback` plus the PipeWire pipeline (~2–4 ms
+  at quantum=32).
 
-```bash
-uv run bgmusic.py --deep-debug
-```
+---
 
-Then press a few normal letter keys and inspect the `[deep ...] key=...` lines.
+## Keyboard Soundpack
+
+The bundled files in `assets/` are a CherryMX Blue PBT keycap soundpack from
+MechvibesDX (see `assets/README.md` for credits and format documentation):
+
+- `assets/sound.ogg` — all key sounds in one audio file.
+- `assets/config.json` — timing slices mapping each key to its position in the file.
+
+---
+
+## File Reference
+
+| Path | Purpose |
+|---|---|
+| `bgmusic.py` | Single entry-point; all logic lives here |
+| `config.yaml` | Static settings; read once at startup |
+| `run.sh` | Preferred launcher (sets `PYTHON_GIL=0`) |
+| `requirements.txt` | Python dependencies |
+| `music/` | Put your audio files here |
+| `assets/` | Bundled keyboard soundpack |
+| `bgmusic_settings.json` | Persistent user settings (auto-created, gitignored) |
+| `/tmp/bgmusic_state.json` | Runtime IPC state (created by daemon) |
+| `/tmp/mpv_bg_socket` | Unix socket for mpv IPC (created by daemon) |

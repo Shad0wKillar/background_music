@@ -29,6 +29,9 @@ htmlcov/
 *.part
 tmp/
 
+# User settings (machine-specific; generated at runtime)
+bgmusic_settings.json
+
 # Editors and OS files
 .idea/
 .vscode/

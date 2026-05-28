@@ -35,6 +35,7 @@ PROJECT_DIR = Path(__file__).resolve().parent
 DEFAULT_CONFIG_PATH = PROJECT_DIR / "config.yaml"
 SOCKET_PATH = Path("/tmp/mpv_bg_socket")
 STATE_FILE = Path("/tmp/bgmusic_state.json")
+SETTINGS_FILE = PROJECT_DIR / "bgmusic_settings.json"
 MY_APP_NAME = "My_Background_Music"
 KEYBOARD_APP_NAME = "BGM_Keyboard_Sounds"
 CHECK_INTERVAL = 0.5
@@ -86,7 +87,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "max_polyphony": 32,
         "performance_preset": "low_latency",
         "latency": 0.002,
-        "blocksize": 64,
+        "blocksize": 32,
         "state_sync_interval": 0.1,
         "trim_leading_silence": True,
         "trim_threshold_ratio": 0.02,
@@ -207,7 +208,7 @@ def default_state(config: dict[str, Any]) -> dict[str, Any]:
             config["keyboard_sounds"].get("enabled"), True
         ),
         "keyboard_volume": clamp(
-            float_setting(config["keyboard_sounds"].get("volume"), 1.0), 0.0, 2.0
+            float_setting(config["keyboard_sounds"].get("volume"), 1.0), 0.0, 1.0
         ),
     }
 
@@ -239,7 +240,7 @@ def get_state(config: dict[str, Any] | None = None) -> dict[str, Any]:
         defaults.get("keyboard_sounds_enabled"), True
     )
     defaults["keyboard_volume"] = clamp(
-        float_setting(defaults.get("keyboard_volume"), 1.0), 0.0, 2.0
+        float_setting(defaults.get("keyboard_volume"), 1.0), 0.0, 1.0
     )
     return defaults
 
@@ -254,6 +255,83 @@ def update_state(config: dict[str, Any], **updates: Any) -> dict[str, Any]:
     state.update(updates)
     set_state(state)
     return state
+
+
+class SettingsStore:
+    """In-memory settings with immediate atomic persistence to disk.
+
+    Every call to set() writes to SETTINGS_FILE right away so no state is
+    lost if the process is interrupted.  The file is written via a temp-file
+    rename so a partial write can never corrupt the saved state.
+    """
+
+    def __init__(self, path: Path, data: dict[str, Any]) -> None:
+        self._path = path
+        self._lock = threading.Lock()
+        self._data: dict[str, Any] = dict(data)
+
+    def get(self, key: str, default: Any = None) -> Any:
+        with self._lock:
+            return self._data.get(key, default)
+
+    def set(self, key: str, value: Any) -> None:
+        with self._lock:
+            if self._data.get(key) == value:
+                return
+            self._data[key] = value
+            self._flush_locked()
+
+    def as_dict(self) -> dict[str, Any]:
+        with self._lock:
+            return dict(self._data)
+
+    def _flush_locked(self) -> None:
+        try:
+            tmp = self._path.with_suffix(".tmp")
+            with tmp.open("w", encoding="utf-8") as f:
+                json.dump(self._data, f, indent=2)
+            tmp.replace(self._path)
+        except Exception as error:
+            print(f"Warning: could not save settings: {error}")
+
+    @classmethod
+    def load(cls, path: Path, config: dict[str, Any]) -> "SettingsStore":
+        data: dict[str, Any] = {
+            "keyboard_volume": clamp(
+                float_setting(config["keyboard_sounds"].get("volume"), 1.0), 0.0, 1.0
+            ),
+            "keyboard_sounds_enabled": bool_setting(
+                config["keyboard_sounds"].get("enabled"), True
+            ),
+            "loop": bool_setting(config["music"].get("loop"), True),
+            "music_volume": 100.0,
+            "last_track": None,
+        }
+        try:
+            if path.exists():
+                with path.open("r", encoding="utf-8") as f:
+                    saved = json.load(f)
+                if isinstance(saved, dict):
+                    if "keyboard_volume" in saved:
+                        data["keyboard_volume"] = clamp(
+                            float_setting(saved["keyboard_volume"], data["keyboard_volume"]),
+                            0.0, 1.0,
+                        )
+                    if "keyboard_sounds_enabled" in saved:
+                        data["keyboard_sounds_enabled"] = bool_setting(
+                            saved["keyboard_sounds_enabled"], True
+                        )
+                    if "loop" in saved:
+                        data["loop"] = bool_setting(saved["loop"], True)
+                    if "music_volume" in saved:
+                        data["music_volume"] = clamp(
+                            float_setting(saved["music_volume"], 100.0), 0.0, 100.0
+                        )
+                    if "last_track" in saved and isinstance(saved["last_track"], str):
+                        data["last_track"] = saved["last_track"]
+        except Exception as error:
+            print(f"Warning: could not load settings: {error}")
+        return cls(path, data)
 
 
 def send_ipc_command(command_dict: dict[str, Any]) -> Any:
@@ -308,16 +386,20 @@ def previous_track() -> None:
     print("Skipped to previous track")
 
 
-def toggle_loop(config: dict[str, Any]) -> None:
+def toggle_loop(config: dict[str, Any], store: "SettingsStore | None" = None) -> None:
     current = get_state(config)
     enabled = not current["loop"]
     update_state(config, loop=enabled)
     set_mpv_loop(enabled)
     print(f"Playlist loop: {enabled}")
+    if store is not None:
+        store.set("loop", enabled)
 
 
 def toggle_keyboard_sounds(
-    config: dict[str, Any], sound_player: "KeyboardSoundPlayer | None" = None
+    config: dict[str, Any],
+    sound_player: "KeyboardSoundPlayer | None" = None,
+    store: "SettingsStore | None" = None,
 ) -> None:
     current = get_state(config)
     enabled = not current["keyboard_sounds_enabled"]
@@ -325,6 +407,8 @@ def toggle_keyboard_sounds(
     if sound_player is not None:
         sound_player.set_enabled(enabled)
     print(f"Keyboard sounds: {enabled}")
+    if store is not None:
+        store.set("keyboard_sounds_enabled", enabled)
 
 
 def volume_step(config: dict[str, Any]) -> float:
@@ -335,17 +419,23 @@ def keyboard_volume_step(config: dict[str, Any]) -> float:
     return float_setting(config["keyboard_sounds"].get("volume_step"), 0.1)
 
 
-def adjust_volume(delta: float) -> None:
-    send_ipc_command({"command": ["add", "volume", delta]})
-    print(f"Volume adjusted by {delta:g}")
+def adjust_volume(delta: float, store: "SettingsStore | None" = None) -> None:
+    fallback = store.get("music_volume", 100.0) if store is not None else 100.0
+    current = get_mpv_property("volume")
+    current_vol = clamp(float_setting(current, fallback), 0.0, 100.0)
+    new_vol = clamp(current_vol + delta, 0.0, 100.0)
+    send_ipc_command({"command": ["set_property", "volume", new_vol]})
+    print(f"Music volume: {new_vol:.0f}%")
+    if store is not None:
+        store.set("music_volume", new_vol)
 
 
-def volume_up(config: dict[str, Any]) -> None:
-    adjust_volume(volume_step(config))
+def volume_up(config: dict[str, Any], store: "SettingsStore | None" = None) -> None:
+    adjust_volume(volume_step(config), store)
 
 
-def volume_down(config: dict[str, Any]) -> None:
-    adjust_volume(-volume_step(config))
+def volume_down(config: dict[str, Any], store: "SettingsStore | None" = None) -> None:
+    adjust_volume(-volume_step(config), store)
 
 
 def toggle_mute() -> None:
@@ -357,25 +447,32 @@ def adjust_keyboard_volume(
     config: dict[str, Any],
     delta: float,
     sound_player: "KeyboardSoundPlayer | None" = None,
+    store: "SettingsStore | None" = None,
 ) -> None:
     current = get_state(config)
-    volume = clamp(float_setting(current.get("keyboard_volume"), 1.0) + delta, 0.0, 2.0)
+    volume = clamp(float_setting(current.get("keyboard_volume"), 1.0) + delta, 0.0, 1.0)
     update_state(config, keyboard_volume=volume)
     if sound_player is not None:
         sound_player.set_volume(volume)
-    print(f"Keyboard volume: {volume:.2f}")
+    print(f"Keyboard volume: {volume * 100:.0f}%")
+    if store is not None:
+        store.set("keyboard_volume", volume)
 
 
 def keyboard_volume_up(
-    config: dict[str, Any], sound_player: "KeyboardSoundPlayer | None" = None
+    config: dict[str, Any],
+    sound_player: "KeyboardSoundPlayer | None" = None,
+    store: "SettingsStore | None" = None,
 ) -> None:
-    adjust_keyboard_volume(config, keyboard_volume_step(config), sound_player)
+    adjust_keyboard_volume(config, keyboard_volume_step(config), sound_player, store)
 
 
 def keyboard_volume_down(
-    config: dict[str, Any], sound_player: "KeyboardSoundPlayer | None" = None
+    config: dict[str, Any],
+    sound_player: "KeyboardSoundPlayer | None" = None,
+    store: "SettingsStore | None" = None,
 ) -> None:
-    adjust_keyboard_volume(config, -keyboard_volume_step(config), sound_player)
+    adjust_keyboard_volume(config, -keyboard_volume_step(config), sound_player, store)
 
 
 def list_audio_devices() -> None:
@@ -688,7 +785,7 @@ class KeyboardSoundPlayer:
         self.event_mode = (
             event_mode if event_mode in {"keydown", "keyup", "both"} else "keydown"
         )
-        self.volume = clamp(volume, 0.0, 2.0)
+        self.volume = clamp(volume, 0.0, 1.0)
         self.max_polyphony = max(1, max_polyphony)
         self.state_sync_interval = max(0.0, state_sync_interval)
         self.logger = logger
@@ -947,7 +1044,7 @@ class KeyboardSoundPlayer:
 
     def set_volume(self, volume: float) -> None:
         with self.lock:
-            self.volume = clamp(volume, 0.0, 2.0)
+            self.volume = clamp(volume, 0.0, 1.0)
 
     def _state_watcher(self) -> None:
         interval = max(0.05, self.state_sync_interval)
@@ -1409,6 +1506,7 @@ def build_mpv_command(
         "--idle=yes",
         f"--audio-client-name={MY_APP_NAME}",
         f"--loop-playlist={loop_value}",
+        "--volume-max=100",
     ]
     if shuffle:
         command.append("--shuffle")
@@ -1427,7 +1525,9 @@ def keyboard_audio_settings(config: dict[str, Any]) -> tuple[str | float, int]:
     )
 
 
-def start_keyboard_features(config: dict[str, Any], logger: DebugLogger) -> tuple[Any, Any]:
+def start_keyboard_features(
+    config: dict[str, Any], logger: DebugLogger, store: "SettingsStore"
+) -> tuple[Any, Any]:
     keyboard_config = config["keyboard_sounds"]
     sound_player = None
 
@@ -1465,13 +1565,13 @@ def start_keyboard_features(config: dict[str, Any], logger: DebugLogger) -> tupl
         "toggle_music": lambda: toggle_music(config),
         "next_track": next_track,
         "previous_track": previous_track,
-        "toggle_loop": lambda: toggle_loop(config),
-        "toggle_keyboard_sounds": lambda: toggle_keyboard_sounds(config, sound_player),
-        "volume_up": lambda: volume_up(config),
-        "volume_down": lambda: volume_down(config),
+        "toggle_loop": lambda: toggle_loop(config, store),
+        "toggle_keyboard_sounds": lambda: toggle_keyboard_sounds(config, sound_player, store),
+        "volume_up": lambda: volume_up(config, store),
+        "volume_down": lambda: volume_down(config, store),
         "toggle_mute": toggle_mute,
-        "keyboard_volume_up": lambda: keyboard_volume_up(config, sound_player),
-        "keyboard_volume_down": lambda: keyboard_volume_down(config, sound_player),
+        "keyboard_volume_up": lambda: keyboard_volume_up(config, sound_player, store),
+        "keyboard_volume_down": lambda: keyboard_volume_down(config, sound_player, store),
     }
     hotkey_manager = HotkeyManager(config, callbacks)
 
@@ -1529,13 +1629,32 @@ def _apply_pipewire_force_quantum(frames: int) -> bool:
 
 
 def handle_start(args: argparse.Namespace) -> None:
+    # The audio callback runs in a native PortAudio C thread.  To call Python code
+    # it must acquire the GIL.  Python's default GIL yield interval (5 ms) means the
+    # callback thread can wait up to 5 ms for another Python thread to release the
+    # GIL — visible as enqueue->callback spikes in --deep-debug output.
+    #
+    # Best fix: run with the free-threaded Python build (no GIL at all):
+    #   uv run --python cpython-3.14t bgmusic.py
+    #
+    # Fallback fix on standard Python: shrink the yield interval so no thread can
+    # hold the GIL longer than ~1 ms.  In normal operation (no --deep-debug) there
+    # are only a few mostly-sleeping threads, so the overhead is negligible.
+    if not getattr(sys, "_is_gil_enabled", lambda: True)():
+        pass  # free-threaded Python — GIL doesn't exist, nothing to tune
+    else:
+        sys.setswitchinterval(0.001)
+
     config = load_config(Path(args.config))
     logger = DebugLogger(
         bool_setting(getattr(args, "debug", False), False),
         bool_setting(getattr(args, "deep_debug", False), False),
     )
     ensure_start_dependencies()
-    logger.log(f"using config: {Path(args.config).resolve()}")
+    logger.log(
+        f"using config: {Path(args.config).resolve()} | "
+        f"GIL={'disabled' if not getattr(sys, '_is_gil_enabled', lambda: True)() else 'enabled, interval=1ms'}"
+    )
     logger.deep("deep keyboard latency logging enabled for first 100 key sounds")
 
     # Reduce PipeWire's graph quantum so the audio callback fires more frequently.
@@ -1570,6 +1689,17 @@ def handle_start(args: argparse.Namespace) -> None:
                 "(pw-metadata not found or failed — install pipewire package)"
             )
 
+    # Load persistent user settings from bgmusic_settings.json inside the project dir.
+    # manual_pause is intentionally excluded — the daemon always starts playing.
+    store = SettingsStore.load(SETTINGS_FILE, config)
+    logger.log(
+        f"settings: loop={store.get('loop')} "
+        f"kb_sounds={store.get('keyboard_sounds_enabled')} "
+        f"kb_vol={store.get('keyboard_volume', 1.0) * 100:.0f}% "
+        f"music_vol={store.get('music_volume', 100.0):.0f}% "
+        f"last_track={Path(store.get('last_track')).name if store.get('last_track') else 'none'}"
+    )
+
     music_dir = resolve_project_path(config["music"].get("directory", "music"))
     if not music_dir.exists():
         raise RuntimeError(f"Music directory not found: {music_dir}")
@@ -1580,13 +1710,18 @@ def handle_start(args: argparse.Namespace) -> None:
     for index, path in enumerate(music_files, start=1):
         logger.log(f"  {index}. {path}")
 
-    loop_enabled = bool_setting(config["music"].get("loop"), True)
+    loop_enabled = store.get("loop")
     shuffle = bool_setting(config["music"].get("shuffle"), False)
     arg_shuffle = getattr(args, "shuffle", None)
     if arg_shuffle is not None:
         shuffle = arg_shuffle
 
-    set_state(default_state(config))
+    set_state({
+        "manual_pause": False,
+        "loop": store.get("loop"),
+        "keyboard_sounds_enabled": store.get("keyboard_sounds_enabled"),
+        "keyboard_volume": store.get("keyboard_volume"),
+    })
     if SOCKET_PATH.exists():
         SOCKET_PATH.unlink()
 
@@ -1606,11 +1741,38 @@ def handle_start(args: argparse.Namespace) -> None:
         "ignoring audio process ids: "
         f"python={os.getpid()}, mpv={mpv_process.pid}"
     )
-    time.sleep(1)
+
+    # Wait for mpv to create its IPC socket instead of sleeping a fixed second.
+    # mpv typically creates the socket in < 200 ms; we poll every 25 ms.
+    _socket_wait_start = time.monotonic()
+    _socket_deadline = _socket_wait_start + 5.0
+    while not SOCKET_PATH.exists():
+        if time.monotonic() >= _socket_deadline:
+            logger.log("warning: mpv socket did not appear within 5 s")
+            break
+        time.sleep(0.025)
+    logger.log(f"mpv socket ready ({(time.monotonic() - _socket_wait_start) * 1000:.0f} ms)")
+
     set_mpv_loop(loop_enabled)
 
+    # Restore saved music volume (cap at 100%).
+    _saved_vol = store.get("music_volume", 100.0)
+    if _saved_vol != 100.0:
+        send_ipc_command({"command": ["set_property", "volume", _saved_vol]})
+        logger.log(f"restored music volume: {_saved_vol:.0f}%")
+
+    # Resume from the last played track if it is still in the playlist.
+    _saved_track = store.get("last_track")
+    if _saved_track:
+        for _idx, _path in enumerate(music_files):
+            if str(_path) == _saved_track:
+                if _idx > 0:
+                    send_ipc_command({"command": ["set_property", "playlist-pos", _idx]})
+                    logger.log(f"resumed from track {_idx + 1}: {Path(_saved_track).name}")
+                break
+
     pre_keyboard_sink_indexes = snapshot_sink_indexes(logger)
-    sound_player, keyboard_monitor = start_keyboard_features(config, logger)
+    sound_player, keyboard_monitor = start_keyboard_features(config, logger, store)
     time.sleep(0.25)
     post_keyboard_sink_indexes = snapshot_sink_indexes(logger)
     ignored_sink_indexes = post_keyboard_sink_indexes - pre_keyboard_sink_indexes
@@ -1628,6 +1790,20 @@ def handle_start(args: argparse.Namespace) -> None:
         cleaned_up = True
 
         print("\nStopping background music...")
+
+        # Final snapshot from mpv and state file while everything is still alive.
+        # store.set writes to disk immediately, so these are the last saved values.
+        _cur_track = get_mpv_property("path")
+        _cur_vol = get_mpv_property("volume")
+        _cur_state = get_state(config)
+        if _cur_track:
+            store.set("last_track", str(_cur_track))
+        if _cur_vol is not None:
+            store.set("music_volume", clamp(float_setting(_cur_vol, 100.0), 0.0, 100.0))
+        store.set("keyboard_volume", _cur_state.get("keyboard_volume", store.get("keyboard_volume", 1.0)))
+        store.set("keyboard_sounds_enabled", _cur_state.get("keyboard_sounds_enabled", store.get("keyboard_sounds_enabled", True)))
+        store.set("loop", _cur_state.get("loop", store.get("loop", True)))
+
         if keyboard_monitor is not None:
             keyboard_monitor.close()
         if sound_player is not None:
@@ -1651,8 +1827,6 @@ def handle_start(args: argparse.Namespace) -> None:
                 pass
 
         if _pw_quantum_applied:
-            # Restore PipeWire quantum to whatever it was before we changed it.
-            # 0 means "no force" — PipeWire goes back to negotiating freely.
             restore_to = _pw_quantum_original if _pw_quantum_original is not None else 0
             _apply_pipewire_force_quantum(restore_to)
             logger.log(
@@ -1666,6 +1840,8 @@ def handle_start(args: argparse.Namespace) -> None:
     signal.signal(signal.SIGINT, cleanup)
     signal.signal(signal.SIGTERM, cleanup)
 
+    # Track last known track so the store is updated when the song changes.
+    _known_track: str | None = store.get("last_track")
     print("Monitoring started.")
     audio_debug_state = AudioDebugState()
     music_debug_tracker = MusicDebugTracker(logger)
@@ -1705,6 +1881,19 @@ def handle_start(args: argparse.Namespace) -> None:
                         else "no external audio"
                     )
                     music_debug_tracker.tick(reason)
+
+                    # Keep last_track and music_volume current in the store.
+                    # music_volume is also updated immediately by hotkey callbacks,
+                    # but this catches CLI-based volume commands too.
+                    _cur_track = get_mpv_property("path")
+                    _cur_track_str = str(_cur_track) if _cur_track else None
+                    if _cur_track_str != _known_track:
+                        _known_track = _cur_track_str
+                        store.set("last_track", _cur_track_str)
+                    _cur_vol = get_mpv_property("volume")
+                    if _cur_vol is not None:
+                        store.set("music_volume", clamp(float_setting(_cur_vol, 100.0), 0.0, 100.0))
+
                     time.sleep(CHECK_INTERVAL)
                 except pulsectl.PulseError:
                     logger.log("PulseAudio connection error; retrying")

@@ -57,14 +57,14 @@ keyboard_sounds:
   # (~2.7 ms) gives ~8 ms. The setting is applied globally (affects all apps)
   # for the lifetime of bgmusic, then restored on exit.
   # Set to 0 to leave the system quantum unchanged.
-  pipewire_quantum: 64
+  pipewire_quantum: 32
   # PortAudio stream buffer settings. These work together with pipewire_quantum:
   # latency controls PortAudio's own ring buffer; blocksize is the callback chunk
   # size. Keep blocksize ≤ pipewire_quantum*44100/48000. If you hear crackling,
   # raise latency (0.010) and/or blocksize (128), or raise pipewire_quantum (512).
   performance_preset: low_latency
-  latency: 0.002
-  blocksize: 64
+  latency: 0.001
+  blocksize: 32
   state_sync_interval: 0.1
   trim_leading_silence: true
   trim_threshold_ratio: 0.02
