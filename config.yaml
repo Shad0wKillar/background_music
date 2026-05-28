@@ -47,7 +47,7 @@ keyboard_sounds:
   event: keydown
   # Recommended by the bundled soundpack. Valid practical range: 0.0 to 2.0.
   volume: 0.5
-  volume_step: 0.1
+  volume_step: 0.05
   max_polyphony: 32
   # PipeWire graph quantum while bgmusic is running (frames at 48 kHz).
   # This is the dominant latency knob: PipeWire's default quantum is 1024 frames

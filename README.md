@@ -186,7 +186,7 @@ uv run bgmusic.py keyboard-sounds    # toggle keyboard click sounds (saved)
 uv run bgmusic.py volume-up          # raise music volume by volume_step (default 5 %)
 uv run bgmusic.py volume-down        # lower music volume
 uv run bgmusic.py mute               # toggle mpv mute
-uv run bgmusic.py keyboard-volume-up    # raise keyboard click volume (saved)
+uv run bgmusic.py keyboard-volume-up    # raise keyboard click volume by volume_step (default 5 %, saved)
 uv run bgmusic.py keyboard-volume-down  # lower keyboard click volume (saved)
 uv run bgmusic.py volume +10         # relative volume change; capped at 100 %
 uv run bgmusic.py volume -5
@@ -245,7 +245,7 @@ keyboard_sounds:
   soundpack_directory: assets
   event: keydown          # keydown | keyup | both
   volume: 0.5             # 0.0–1.0; saved at runtime
-  volume_step: 0.1
+  volume_step: 0.05       # 5 % per keyboard-volume-up / keyboard-volume-down press
   max_polyphony: 32
   pipewire_quantum: 32    # frames at 48 kHz; lower = less latency; 0 = leave alone
   performance_preset: low_latency
@@ -311,7 +311,8 @@ MechvibesDX (see `assets/README.md` for credits and format documentation):
 
 | Path | Purpose |
 |---|---|
-| `bgmusic.py` | Single entry-point; all logic lives here |
+| `bgmusic.py` | Thin entry-point (`python bgmusic.py`); all logic lives in `bgmusic/` |
+| `bgmusic/` | Python package — daemon, actions, hotkeys, audio, config, IPC, etc. |
 | `config.yaml` | Static settings; read once at startup |
 | `run.sh` | Preferred launcher (sets `PYTHON_GIL=0`) |
 | `requirements.txt` | Python dependencies |
