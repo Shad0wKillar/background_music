@@ -9,6 +9,7 @@ import os
 import signal
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -101,7 +102,7 @@ def _snapshot_final_state(
 # handle_start — daemon entry point
 # ---------------------------------------------------------------------------
 
-def handle_start(args: Any) -> None:
+def handle_start(args: Any, stop_event: threading.Event | None = None) -> None:
     # Free-threaded Python (PYTHON_GIL=0) has no GIL at all, which is the
     # best case.  On standard Python we shorten the GIL yield interval to
     # 1 ms so the PortAudio C callback thread isn't blocked for long.
@@ -222,11 +223,12 @@ def handle_start(args: Any) -> None:
             _apply_pipewire_force_quantum(restore_to)
             logger.log(f"PipeWire quantum restored to {restore_to if restore_to else 'default (unset)'}")
 
-        if signum is not None:
+        if signum is not None and stop_event is None:
             sys.exit(0)
 
-    signal.signal(signal.SIGINT, cleanup)
-    signal.signal(signal.SIGTERM, cleanup)
+    if stop_event is None:
+        signal.signal(signal.SIGINT, cleanup)
+        signal.signal(signal.SIGTERM, cleanup)
 
     _known_track: str | None = store.get("last_track")
     print("Monitoring started.")
@@ -235,7 +237,7 @@ def handle_start(args: Any) -> None:
 
     try:
         with pulsectl.Pulse("bg-music-monitor") as pulse:
-            while True:
+            while stop_event is None or not stop_event.is_set():
                 try:
                     state = get_state(config)
                     if state["manual_pause"]:

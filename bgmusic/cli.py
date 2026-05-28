@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import argparse
+import signal
 import sys
+import threading
 from pathlib import Path
 
 from bgmusic.actions import (
@@ -56,6 +58,37 @@ def handle_control(args: argparse.Namespace) -> None:
         adjust_volume(value)
 
 
+def _handle_start_with_tui(args: argparse.Namespace) -> None:
+    """Start the daemon in a background thread, then run the Textual TUI."""
+    from bgmusic.tui.app import BGMusicApp
+
+    config = load_config(Path(args.config))
+    stop_event = threading.Event()
+
+    def _daemon_target() -> None:
+        try:
+            handle_start(args, stop_event=stop_event)
+        except RuntimeError as exc:
+            print(f"Daemon error: {exc}", file=sys.stderr)
+        finally:
+            stop_event.set()
+
+    daemon_thread = threading.Thread(
+        target=_daemon_target,
+        daemon=True,
+        name="bgmusic-daemon",
+    )
+    daemon_thread.start()
+
+    app = BGMusicApp(config=config, stop_event=stop_event)
+    signal.signal(signal.SIGTERM, lambda _s, _f: app.exit())
+
+    app.run()
+
+    stop_event.set()
+    daemon_thread.join(timeout=5)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="OperaGX-style background music manager",
@@ -82,6 +115,8 @@ def build_parser() -> argparse.ArgumentParser:
     start_p = sub.add_parser("start", help="Start the music daemon")
     start_p.add_argument("--shuffle", action="store_true", default=None,
                          help="Shuffle the playlist for this run")
+    start_p.add_argument("--no-tui", action="store_true", default=False,
+                         help="Run the daemon headlessly without the TUI")
     start_p.add_argument("--debug",      action="store_true", default=argparse.SUPPRESS)
     start_p.add_argument("--deep-debug", action="store_true", default=argparse.SUPPRESS)
 
@@ -110,7 +145,10 @@ def main() -> None:
 
     try:
         if args.action in {None, "start"}:
-            handle_start(args)
+            if getattr(args, "no_tui", False):
+                handle_start(args)
+            else:
+                _handle_start_with_tui(args)
         else:
             handle_control(args)
     except RuntimeError as error:

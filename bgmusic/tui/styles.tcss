@@ -1,0 +1,142 @@
+/* ═══════════════════════════════════════════════════════════════════
+   bgmusic TUI — two-column layout (left: player, right: playlist)
+   ═══════════════════════════════════════════════════════════════════ */
+
+Screen {
+    background: $background;
+}
+
+
+/* ── Two-column main area ─────────────────────────────────────────── */
+
+#main {
+    height: 1fr;
+}
+
+#left-panel {
+    width: 46;
+    height: 100%;
+    background: $surface;
+    border-right: heavy $primary;
+    padding: 1 2;
+}
+
+#right-panel {
+    width: 1fr;
+    height: 100%;
+}
+
+
+/* ── Left panel: NowPlayingPanel labels ──────────────────────────── */
+
+NowPlayingPanel {
+    height: 100%;
+}
+
+#np-track {
+    margin-bottom: 0;
+}
+
+#np-track-num {
+    margin-bottom: 1;
+}
+
+#np-progress {
+    margin-bottom: 0;
+}
+
+#np-time {
+    margin-bottom: 1;
+}
+
+#np-div1 {
+    color: $primary;
+    margin-bottom: 1;
+}
+
+#np-status {
+    margin-bottom: 1;
+}
+
+#np-div2 {
+    color: $primary;
+    margin-bottom: 1;
+}
+
+#np-music-vol {
+    margin-bottom: 1;
+}
+
+#np-kb {
+    /* sits directly below music vol */
+}
+
+
+/* ── Right panel: playlist ───────────────────────────────────────── */
+
+#playlist-header {
+    height: 1;
+    padding: 0 2;
+    background: $boost;
+    color: $text-muted;
+    text-style: bold;
+}
+
+#playlist {
+    height: 1fr;
+    background: $background;
+    border: none;
+    scrollbar-gutter: stable;
+}
+
+ListItem {
+    height: 1;
+    padding: 0 1;
+}
+
+ListItem.playing Label {
+    color: $accent;
+    text-style: bold;
+}
+
+ListItem.--highlight {
+    background: $boost;
+}
+
+
+/* ── Help modal ───────────────────────────────────────────────────── */
+
+HelpScreen {
+    align: center middle;
+    background: rgba(0, 0, 0, 0.75);
+}
+
+#help-box {
+    width: 64;
+    height: auto;
+    max-height: 85%;
+    background: $surface;
+    border: heavy $primary;
+}
+
+#help-title {
+    padding: 0 2;
+    height: 3;
+    content-align: left middle;
+    background: $primary;
+    color: $background;
+    text-style: bold;
+}
+
+#help-body {
+    padding: 1 1;
+    height: auto;
+}
+
+#help-footer {
+    padding: 0 2;
+    height: 2;
+    content-align: left middle;
+    background: $boost;
+    color: $text-muted;
+}
