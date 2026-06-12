@@ -10,7 +10,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from bgmusic.config import clamp, float_setting
+from bgmusic.config import clamp, float_setting, string_list_setting
+from bgmusic.audio import audio_source_label
 from bgmusic.ipc import get_mpv_property, send_ipc_command, set_mpv_loop, set_mpv_pause, set_mpv_repeat
 from bgmusic.state import get_state, update_state
 
@@ -151,6 +152,31 @@ def keyboard_volume_down(
     store: SettingsStore | None = None,
 ) -> None:
     adjust_keyboard_volume(config, -keyboard_volume_step(config), sound_player, store)
+
+
+# ---------------------------------------------------------------------------
+# Audio detection ignores
+# ---------------------------------------------------------------------------
+
+def toggle_audio_source_ignore(
+    config: dict[str, Any],
+    source_key: str,
+    store: SettingsStore | None = None,
+) -> bool:
+    """Toggle a TUI-selected audio source in the runtime ignore list."""
+    current = get_state(config)
+    ignored = string_list_setting(current.get("ignored_audio_sources"))
+    if source_key in ignored:
+        ignored = [key for key in ignored if key != source_key]
+        enabled = False
+    else:
+        ignored = [*ignored, source_key]
+        enabled = True
+    update_state(config, ignored_audio_sources=ignored)
+    print(f"Audio source ignored: {audio_source_label(source_key)} = {enabled}")
+    if store is not None:
+        store.set("ignored_audio_sources", ignored)
+    return enabled
 
 
 # ---------------------------------------------------------------------------

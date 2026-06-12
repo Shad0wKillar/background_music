@@ -77,6 +77,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "latency":              0.002,
         "blocksize":            32,
         "state_sync_interval":  0.1,
+        "duplicate_suppression_ms": 12,
         "trim_leading_silence": True,
         "trim_threshold_ratio": 0.02,
         "trim_max_ms":          8,

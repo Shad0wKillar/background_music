@@ -4,7 +4,8 @@ Two separate storage layers:
 
 STATE_FILE (/tmp/bgmusic_state.json)
     Short-lived IPC bridge between the daemon and control sub-commands.
-    Holds manual_pause, loop, keyboard_sounds_enabled, keyboard_volume.
+    Holds manual_pause, loop, keyboard_sounds_enabled, keyboard_volume,
+    ignored_audio_sources.
     Deleted on clean exit.
 
 SettingsStore (bgmusic_settings.json in the project root)
@@ -19,7 +20,7 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from bgmusic.config import bool_setting, clamp, float_setting
+from bgmusic.config import bool_setting, clamp, float_setting, string_list_setting
 from bgmusic.constants import SETTINGS_FILE, STATE_FILE
 
 
@@ -75,6 +76,7 @@ class SettingsStore:
             "repeat": bool_setting(config["music"].get("repeat"), False),
             "music_volume": 100.0,
             "last_track": None,
+            "ignored_audio_sources": [],
         }
         try:
             if path.exists():
@@ -100,6 +102,10 @@ class SettingsStore:
                         )
                     if "last_track" in saved and isinstance(saved["last_track"], str):
                         data["last_track"] = saved["last_track"]
+                    if "ignored_audio_sources" in saved:
+                        data["ignored_audio_sources"] = string_list_setting(
+                            saved["ignored_audio_sources"]
+                        )
         except Exception as error:
             print(f"Warning: could not load settings: {error}")
         return cls(path, data)
@@ -120,6 +126,7 @@ def default_state(config: dict[str, Any]) -> dict[str, Any]:
         "keyboard_volume": clamp(
             float_setting(config["keyboard_sounds"].get("volume"), 1.0), 0.0, 1.0
         ),
+        "ignored_audio_sources": [],
     }
 
 
@@ -129,7 +136,8 @@ def get_state(config: dict[str, Any] | None = None) -> dict[str, Any]:
         default_state(config)
         if config is not None
         else {"manual_pause": False, "loop": True,
-              "keyboard_sounds_enabled": True, "keyboard_volume": 1.0}
+              "keyboard_sounds_enabled": True, "keyboard_volume": 1.0,
+              "ignored_audio_sources": []}
     )
     try:
         if STATE_FILE.exists():
@@ -151,6 +159,9 @@ def get_state(config: dict[str, Any] | None = None) -> dict[str, Any]:
     )
     defaults["keyboard_volume"] = clamp(
         float_setting(defaults.get("keyboard_volume"), 1.0), 0.0, 1.0
+    )
+    defaults["ignored_audio_sources"] = string_list_setting(
+        defaults.get("ignored_audio_sources")
     )
     return defaults
 

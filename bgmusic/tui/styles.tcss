@@ -89,6 +89,21 @@ NowPlayingPanel {
     scrollbar-gutter: stable;
 }
 
+#sources-header {
+    height: 1;
+    padding: 0 2;
+    background: $boost;
+    color: $text-muted;
+    text-style: bold;
+}
+
+#audio-sources {
+    height: 9;
+    background: $background;
+    border-top: heavy $primary;
+    scrollbar-gutter: stable;
+}
+
 ListItem {
     height: 1;
     padding: 0 1;
@@ -97,6 +112,14 @@ ListItem {
 ListItem.playing Label {
     color: $accent;
     text-style: bold;
+}
+
+ListItem.ignored-source Label {
+    color: $accent;
+}
+
+ListItem.protected-source Label {
+    color: $text-muted;
 }
 
 ListItem.--highlight {

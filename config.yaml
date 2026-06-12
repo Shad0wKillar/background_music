@@ -41,6 +41,26 @@ audio_detection:
   ignore_media_names:
     - MechVibes Playground
   ignore_process_binaries: []
+  # Flexible rules support app/media/role/binary/pid/corked/playing.
+  # Each rule may use `all:` and/or `any:` lists. String values accept
+  # shell-style wildcards and match case-insensitively.
+  ignore_rules:
+    - name: virtual-source-output
+      any:
+        - media: "Virtual Source output"
+    - name: chromium-idle-helper
+      all:
+        - binary: ["chromium", "chromium-browser", "chrome", "google-chrome*"]
+        - corked: true
+    - name: zen-idle-helper
+      all:
+        - binary: ["zen*", "zen-browser", "zen-bin"]
+        - corked: true
+    - name: tor-idle-helper
+      all:
+        - binary: ["tor-browser*", "firefox.real", "firefox"]
+        - app: ["Tor Browser*", "tor-browser*"]
+        - corked: true
 
 keyboard_sounds:
   enabled: true
@@ -59,14 +79,15 @@ keyboard_sounds:
   # (~2.7 ms) gives ~8 ms. The setting is applied globally (affects all apps)
   # for the lifetime of bgmusic, then restored on exit.
   # Set to 0 to leave the system quantum unchanged.
-  pipewire_quantum: 32
+  pipewire_quantum: 128
   # PortAudio stream buffer settings. These work together with pipewire_quantum:
   # latency controls PortAudio's own ring buffer; blocksize is the callback chunk
-  # size. Keep blocksize ≤ pipewire_quantum*44100/48000. If you hear crackling,
-  # raise latency (0.010) and/or blocksize (128), or raise pipewire_quantum (512).
+  # size. If you hear crackling, raise latency (0.010) and/or blocksize (128),
+  # or raise pipewire_quantum (256/512).
   performance_preset: low_latency
-  latency: 0.001
-  blocksize: 32
+  latency: 0.005
+  blocksize: 64
+  duplicate_suppression_ms: 12
   state_sync_interval: 0.1
   trim_leading_silence: true
   trim_threshold_ratio: 0.02

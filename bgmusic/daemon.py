@@ -18,11 +18,15 @@ from bgmusic.audio import (
     AudioDebugState, ensure_start_dependencies,
     other_audio_is_playing, snapshot_sink_indexes,
 )
-from bgmusic.config import bool_setting, clamp, float_setting, load_config, resolve_project_path
+from bgmusic.config import bool_setting, load_config, resolve_project_path
 from bgmusic.constants import CHECK_INTERVAL, SETTINGS_FILE, SOCKET_PATH, STATE_FILE
+from bgmusic.daemon_helpers import (
+    initial_runtime_state, persist_live_settings, restore_from_settings,
+    snapshot_final_state, wait_for_mpv_socket,
+)
 from bgmusic.debug import DebugLogger
 from bgmusic.hotkeys import start_keyboard_features
-from bgmusic.ipc import get_mpv_property, send_ipc_command, set_mpv_loop, set_mpv_pause, set_mpv_repeat
+from bgmusic.ipc import send_ipc_command, set_mpv_pause
 from bgmusic.music import (
     MusicDebugTracker, build_mpv_command, configured_music_extensions,
     discover_music_files, setup_pipewire_quantum, _apply_pipewire_force_quantum,
@@ -33,69 +37,6 @@ try:
     import pulsectl
 except ImportError:
     pulsectl = None  # type: ignore[assignment]
-
-
-# ---------------------------------------------------------------------------
-# Private helpers extracted from handle_start
-# ---------------------------------------------------------------------------
-
-def _wait_for_mpv_socket(logger: DebugLogger, timeout: float = 5.0) -> None:
-    """Block until the mpv IPC socket appears, then return.
-
-    Polls every 25 ms instead of a fixed sleep so the daemon reacts as
-    soon as mpv is ready (typically < 200 ms).
-    """
-    start = time.monotonic()
-    deadline = start + timeout
-    while not SOCKET_PATH.exists():
-        if time.monotonic() >= deadline:
-            logger.log("warning: mpv socket did not appear within 5 s")
-            return
-        time.sleep(0.025)
-    logger.log(f"mpv socket ready ({(time.monotonic() - start) * 1000:.0f} ms)")
-
-
-def _restore_from_settings(
-    store: SettingsStore,
-    music_files: list[Path],
-    loop_enabled: bool,
-    repeat_enabled: bool,
-    logger: DebugLogger,
-) -> None:
-    """Apply saved volume and last-track to the running mpv process."""
-    set_mpv_loop(loop_enabled)
-    set_mpv_repeat(repeat_enabled)
-
-    saved_vol = store.get("music_volume", 100.0)
-    if saved_vol != 100.0:
-        send_ipc_command({"command": ["set_property", "volume", saved_vol]})
-        logger.log(f"restored music volume: {saved_vol:.0f}%")
-
-    saved_track = store.get("last_track")
-    if saved_track:
-        for idx, path in enumerate(music_files):
-            if str(path) == saved_track:
-                if idx > 0:
-                    send_ipc_command({"command": ["set_property", "playlist-pos", idx]})
-                    logger.log(f"resumed from track {idx + 1}: {Path(saved_track).name}")
-                break
-
-
-def _snapshot_final_state(
-    store: SettingsStore, config: dict[str, Any]
-) -> None:
-    """Read the last mpv state and flush it to the settings store before shutdown."""
-    cur_track = get_mpv_property("path")
-    cur_vol   = get_mpv_property("volume")
-    cur_state = get_state(config)
-    if cur_track:
-        store.set("last_track", str(cur_track))
-    if cur_vol is not None:
-        store.set("music_volume", clamp(float_setting(cur_vol, 100.0), 0.0, 100.0))
-    store.set("keyboard_volume", cur_state.get("keyboard_volume", store.get("keyboard_volume", 1.0)))
-    store.set("keyboard_sounds_enabled", cur_state.get("keyboard_sounds_enabled", store.get("keyboard_sounds_enabled", True)))
-    store.set("loop", cur_state.get("loop", store.get("loop", True)))
-    store.set("repeat", cur_state.get("repeat", store.get("repeat", False)))
 
 
 # ---------------------------------------------------------------------------
@@ -153,13 +94,7 @@ def handle_start(args: Any, stop_event: threading.Event | None = None) -> None:
         shuffle = True
 
     # Write initial state so keyboard monitor can read it immediately.
-    set_state({
-        "manual_pause": False,
-        "loop": store.get("loop"),
-        "repeat": store.get("repeat", False),
-        "keyboard_sounds_enabled": store.get("keyboard_sounds_enabled"),
-        "keyboard_volume": store.get("keyboard_volume"),
-    })
+    set_state(initial_runtime_state(store))
     if SOCKET_PATH.exists():
         SOCKET_PATH.unlink()
 
@@ -173,8 +108,8 @@ def handle_start(args: Any, stop_event: threading.Event | None = None) -> None:
     ignored_audio_pids = {str(os.getpid()), str(mpv_process.pid)}
     logger.log(f"ignoring audio process ids: python={os.getpid()}, mpv={mpv_process.pid}")
 
-    _wait_for_mpv_socket(logger)
-    _restore_from_settings(store, music_files, loop_enabled, repeat_enabled, logger)
+    wait_for_mpv_socket(logger)
+    restore_from_settings(store, music_files, loop_enabled, repeat_enabled, logger)
 
     pre_sink_indexes = snapshot_sink_indexes(logger)
     sound_player, keyboard_monitor = start_keyboard_features(config, logger, store)
@@ -194,7 +129,7 @@ def handle_start(args: Any, stop_event: threading.Event | None = None) -> None:
         print("\nStopping background music...")
 
         # Snapshot before killing anything — store.set writes immediately.
-        _snapshot_final_state(store, config)
+        snapshot_final_state(store, config)
 
         if keyboard_monitor is not None:
             keyboard_monitor.close()
@@ -247,7 +182,7 @@ def handle_start(args: Any, stop_event: threading.Event | None = None) -> None:
                         continue
 
                     external_playing, external_trigger = other_audio_is_playing(
-                        pulse, config, ignored_audio_pids, ignored_sink_indexes, logger, audio_debug,
+                        pulse, config, state, ignored_audio_pids, ignored_sink_indexes, logger, audio_debug,
                     )
                     if external_trigger != audio_debug.external_trigger:
                         audio_debug.external_trigger = external_trigger
@@ -264,17 +199,7 @@ def handle_start(args: Any, stop_event: threading.Event | None = None) -> None:
                     )
                     music_debug.tick(reason)
 
-                    # Keep last_track and music_volume current in the store.
-                    # Hotkey callbacks also update music_volume immediately, but
-                    # this catches volume changes made via CLI sub-commands.
-                    cur_track = get_mpv_property("path")
-                    cur_track_str = str(cur_track) if cur_track else None
-                    if cur_track_str != _known_track:
-                        _known_track = cur_track_str
-                        store.set("last_track", cur_track_str)
-                    cur_vol = get_mpv_property("volume")
-                    if cur_vol is not None:
-                        store.set("music_volume", clamp(float_setting(cur_vol, 100.0), 0.0, 100.0))
+                    _known_track = persist_live_settings(store, state, _known_track)
 
                     time.sleep(CHECK_INTERVAL)
                 except pulsectl.PulseError:

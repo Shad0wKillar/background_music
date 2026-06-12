@@ -117,8 +117,6 @@ If you add a udev rule instead, the app does not grab or block the keyboard — 
 typing continues to work. See `ls -l /dev/input/event*`; expected permissions are
 `crw-rw----` with group `input`.
 
----
-
 ## Running the Daemon
 
 ### Recommended (lowest latency)
@@ -143,8 +141,6 @@ uv run bgmusic.py
 ./run.sh --deep-debug   # per-key latency diagnostics for the first 100 keystrokes
 ./run.sh start --shuffle  # shuffle the playlist for this run only
 ```
-
----
 
 ## Persistent User Settings
 
@@ -171,8 +167,6 @@ Settings are written to disk the instant anything changes (hotkey press, track
 change, etc.) using an atomic temp-file rename, so nothing is lost even if the
 process is killed with `kill -9`.
 
----
-
 ## Control Commands
 
 Run these from a second terminal while the daemon is running:
@@ -192,8 +186,6 @@ uv run bgmusic.py volume +10         # relative volume change; capped at 100 %
 uv run bgmusic.py volume -5
 uv run bgmusic.py audio-devices      # list audio output devices
 ```
-
----
 
 ## Default Hotkeys
 
@@ -220,80 +212,10 @@ super: Alt   # change to Control, Shift, Meta, or Super
 
 ---
 
-## Configuration
+## More Documentation
 
-`config.yaml` is read once at startup. Relative paths are resolved from the
-project directory.
-
-```yaml
-music:
-  directory: music        # folder scanned recursively for audio files
-  loop: true
-  shuffle: false
-  volume_step: 5          # % per volume-up / volume-down press
-
-audio_detection:
-  # Add names here to prevent specific apps from triggering auto-pause.
-  # Values are case-insensitive and support shell wildcards like "*Playground*".
-  ignore_app_names: []
-  ignore_media_names:
-    - MechVibes Playground
-  ignore_process_binaries: []
-
-keyboard_sounds:
-  enabled: true
-  soundpack_directory: assets
-  event: keydown          # keydown | keyup | both
-  volume: 0.5             # 0.0–1.0; saved at runtime
-  volume_step: 0.05       # 5 % per keyboard-volume-up / keyboard-volume-down press
-  max_polyphony: 32
-  pipewire_quantum: 32    # frames at 48 kHz; lower = less latency; 0 = leave alone
-  performance_preset: low_latency
-  latency: 0.001          # PortAudio ring-buffer size in seconds
-  blocksize: 32           # PortAudio frames per callback; keep ≤ pipewire_quantum
-  trim_leading_silence: true
-```
-
----
-
-## Troubleshooting
-
-**Music does not start / no music files found**
-Make sure there are audio files in the `music/` directory (or wherever `music.directory`
-points). Run `./run.sh --debug` and look at the printed playlist.
-
-**Music pauses unexpectedly**
-Run `./run.sh --debug`. Look for `external audio detected; pausing music: ...`.
-The `app=`, `media=`, and `binary=` values in that line identify the offending
-stream. Add the relevant value to `audio_detection.ignore_app_names` (or
-`ignore_media_names` / `ignore_process_binaries`) in `config.yaml`.
-
-**Keyboard sounds / hotkeys do not work**
-Check that your user is in the `input` group (`id`). If not, see
-[Keyboard Input Permission](#6-keyboard-input-permission) above.
-
-**Crackling or audio dropouts**
-Raise `latency` and/or `blocksize` in `config.yaml`:
-
-```yaml
-keyboard_sounds:
-  latency: 0.010
-  blocksize: 128
-```
-
-Or increase `pipewire_quantum` to `256` or `512`.
-
-**How do I check the actual latency?**
-```bash
-./run.sh --deep-debug
-```
-
-Press a few letter keys and inspect the `[deep ...] key=...` lines:
-- `enqueue->callback`: wait for the PortAudio callback — the main tunable latency.
-- `callback->dac`: PortAudio's estimate of downstream buffering. On PipeWire/ALSA
-  virtual devices, this number (~155 ms) is a measurement artifact — ignore it.
-  Real latency is the sum of `enqueue->callback` plus the PipeWire pipeline (~2–4 ms
-  at quantum=32).
+- [Configuration](docs/configuration.md)
+- [Troubleshooting](docs/troubleshooting.md)
 
 ---
 
