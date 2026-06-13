@@ -20,11 +20,6 @@ except ImportError:
 
 from bgmusic.constants import HOTKEY_ACTION_LABELS
 
-
-# ---------------------------------------------------------------------------
-# Modifier normalisation
-# ---------------------------------------------------------------------------
-
 # Maps every config alias to one of the four canonical tokens.
 MODIFIER_ALIASES: dict[str, str] = {
     "alt": "alt", "option": "alt",
@@ -95,11 +90,6 @@ EVDEV_BROWSER_CODES: dict[str, str] = {
     "KEY_PAUSE": "Pause",
 }
 
-
-# ---------------------------------------------------------------------------
-# Parsing functions
-# ---------------------------------------------------------------------------
-
 def normalize_modifier(value: Any) -> str:
     """Convert a config 'super' value (e.g. "Alt") to a canonical token."""
     token = str(value).strip().lower()
@@ -155,11 +145,6 @@ def parse_hotkeys(
             continue
         parsed.append((frozenset(tokens), action, combo))
     return parsed
-
-
-# ---------------------------------------------------------------------------
-# evdev → token conversion (called on every key event)
-# ---------------------------------------------------------------------------
 
 def evdev_code_name(event_code: int) -> str | None:
     """Return the KEY_* name for an evdev code, or None if evdev is missing."""

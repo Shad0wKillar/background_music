@@ -39,14 +39,7 @@ except ImportError:
     pulsectl = None  # type: ignore[assignment]
 
 
-# ---------------------------------------------------------------------------
-# handle_start — daemon entry point
-# ---------------------------------------------------------------------------
-
 def handle_start(args: Any, stop_event: threading.Event | None = None) -> None:
-    # Free-threaded Python (PYTHON_GIL=0) has no GIL at all, which is the
-    # best case.  On standard Python we shorten the GIL yield interval to
-    # 1 ms so the PortAudio C callback thread isn't blocked for long.
     if getattr(sys, "_is_gil_enabled", lambda: True)():
         sys.setswitchinterval(0.001)
 
@@ -62,11 +55,8 @@ def handle_start(args: Any, stop_event: threading.Event | None = None) -> None:
     )
     logger.deep("deep keyboard latency logging enabled for first 100 key sounds")
 
-    # Reduce PipeWire's graph quantum for lower audio callback latency.
     pw_applied, pw_original, _ = setup_pipewire_quantum(config, logger)
 
-    # Load user settings (volume, loop, last track, …).
-    # manual_pause is NOT restored — daemon always starts playing.
     store = SettingsStore.load(SETTINGS_FILE, config)
     logger.log(
         f"settings: loop={store.get('loop')} "
@@ -93,7 +83,6 @@ def handle_start(args: Any, stop_event: threading.Event | None = None) -> None:
     if getattr(args, "shuffle", None):
         shuffle = True
 
-    # Write initial state so keyboard monitor can read it immediately.
     set_state(initial_runtime_state(store))
     if SOCKET_PATH.exists():
         SOCKET_PATH.unlink()
@@ -128,7 +117,6 @@ def handle_start(args: Any, stop_event: threading.Event | None = None) -> None:
         cleaned_up = True
         print("\nStopping background music...")
 
-        # Snapshot before killing anything — store.set writes immediately.
         snapshot_final_state(store, config)
 
         if keyboard_monitor is not None:

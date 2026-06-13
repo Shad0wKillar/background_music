@@ -1,11 +1,4 @@
-"""User-visible action functions.
-
-Each function corresponds to one thing the user can trigger — either via a
-hotkey (when the daemon is running) or via a CLI sub-command.  Functions that
-accept a `store` argument write the new value to disk immediately when called
-from a hotkey; the store parameter is None for CLI invocations (the daemon's
-monitoring loop picks up changes from mpv within one poll cycle instead).
-"""
+"""User-visible action functions for hotkeys and CLI subcommands."""
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
@@ -20,10 +13,6 @@ if TYPE_CHECKING:
     from bgmusic.state import SettingsStore
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
 def volume_step(config: dict[str, Any]) -> float:
     return float_setting(config["music"].get("volume_step"), 5.0)
 
@@ -31,10 +20,6 @@ def volume_step(config: dict[str, Any]) -> float:
 def keyboard_volume_step(config: dict[str, Any]) -> float:
     return float_setting(config["keyboard_sounds"].get("volume_step"), 0.05)
 
-
-# ---------------------------------------------------------------------------
-# Music playback
-# ---------------------------------------------------------------------------
 
 def toggle_music(config: dict[str, Any]) -> None:
     current = get_state(config)
@@ -74,10 +59,6 @@ def toggle_repeat(config: dict[str, Any], store: SettingsStore | None = None) ->
         store.set("repeat", enabled)
 
 
-# ---------------------------------------------------------------------------
-# Music volume
-# ---------------------------------------------------------------------------
-
 def adjust_volume(delta: float, store: SettingsStore | None = None) -> None:
     """Add delta to the current mpv volume, clamped to 0–100 %."""
     fallback = store.get("music_volume", 100.0) if store is not None else 100.0
@@ -102,10 +83,6 @@ def toggle_mute() -> None:
     send_ipc_command({"command": ["cycle", "mute"]})
     print("Mute toggled")
 
-
-# ---------------------------------------------------------------------------
-# Keyboard sounds
-# ---------------------------------------------------------------------------
 
 def toggle_keyboard_sounds(
     config: dict[str, Any],
@@ -154,10 +131,6 @@ def keyboard_volume_down(
     adjust_keyboard_volume(config, -keyboard_volume_step(config), sound_player, store)
 
 
-# ---------------------------------------------------------------------------
-# Audio detection ignores
-# ---------------------------------------------------------------------------
-
 def toggle_audio_source_ignore(
     config: dict[str, Any],
     source_key: str,
@@ -178,10 +151,6 @@ def toggle_audio_source_ignore(
         store.set("ignored_audio_sources", ignored)
     return enabled
 
-
-# ---------------------------------------------------------------------------
-# Misc
-# ---------------------------------------------------------------------------
 
 def list_audio_devices() -> None:
     """Print all output audio devices and their default latency values."""
