@@ -29,61 +29,52 @@ using the bundled CherryMX Blue soundpack in `assets/`.
 
 ## First-time Setup
 
-### 1. System packages
-
-Install these with your package manager before anything else.
-
-**Arch Linux / Manjaro**
-```bash
-sudo pacman -S mpv python uv
-```
-
-**Ubuntu / Debian**
-```bash
-sudo apt install mpv python3 pipx
-pipx install uv
-```
-
-You also need PulseAudio **or** PipeWire with the PulseAudio compatibility service
-(`pipewire-pulse`). Most modern distros running GNOME, KDE, or Sway already ship
-with PipeWire + pipewire-pulse.
-
-### 2. Free-threaded Python 3.14t (recommended)
-
-The daemon uses a free-threaded (no-GIL) Python build for lowest audio latency.
-`uv` can download and manage this automatically:
+From a fresh clone, run:
 
 ```bash
-uv python install cpython-3.14t
+./run.sh
 ```
 
-The `.python-version` file at the project root pins this version, so `uv` picks
-it up automatically. If Python 3.14t is unavailable on your platform, the daemon
-falls back to a standard Python build with a tuned GIL switch interval — latency
-will be slightly higher but everything still works.
+The launcher automatically:
 
-### 3. Python dependencies
+1. Installs `uv` if missing, using its [official installer](https://docs.astral.sh/uv/getting-started/installation/)
+   into `~/.local/bin` without changing shell profiles. This needs `curl` or `wget`.
+2. Downloads the Python version in `.python-version` and creates `.venv` if missing.
+3. Installs missing native dependencies on Arch/Manjaro and Debian/Ubuntu:
+   `mpv`, audio libraries, and the build tools needed by `evdev`.
+4. Installs Python dependencies from `requirements.txt`, including the Textual UI.
+   Later launches check for missing or newly added dependencies without upgrading
+   packages that already satisfy the requirements.
+5. Checks keyboard access. When needed, it creates the `input` group, adds your
+   user, and installs a keyboard udev rule if devices do not already use that group.
+6. Checks the desktop audio connection, then starts the app.
+
+Run as your normal user. Setup asks for your **sudo password** only when system
+packages or keyboard permissions need changing. Membership in `input` allows
+reading raw input devices for global hotkeys and keyboard sounds. If the current
+session does not yet have that group, the launcher starts the app as your user
+with the group active immediately. A full logout/login makes the group available
+throughout the desktop and removes the need for this extra sudo launch.
+
+You need a running PulseAudio server or PipeWire with `pipewire-pulse`. Setup
+reports a missing audio session rather than replacing your desktop's audio stack.
+On other Linux distributions, install the reported native packages manually and
+rerun the launcher. Setup failures stop before opening the TUI; rerun after
+resolving the reported problem.
+
+To prepare everything without starting playback:
 
 ```bash
-cd bg_music
-uv venv --python 3.14t   # creates .venv with free-threaded Python
-uv pip install -r requirements.txt
+./run.sh --setup
 ```
 
-If you skip `--python 3.14t`, uv uses whichever Python the `.python-version` file
-requests (also `3.14t`).
+Help and control commands do not require keyboard access. The launcher can also
+be called by its full path from another directory; `-c` paths remain relative to
+your current directory.
 
-### 4. Verify the install
+### Add music
 
-```bash
-PYTHON_GIL=0 uv run python -c "import sys, yaml, numpy, sounddevice, soundfile, evdev, pulsectl; print('GIL:', sys._is_gil_enabled())"
-```
-
-Expected output: `GIL: False`
-
-### 5. Add music
-
-Put audio files in the `music/` directory (create it if it doesn't exist).
+Put audio files in `music/`, or set `music.directory` in `config.yaml`.
 Supported formats: `.mp3`, `.flac`, `.wav`, `.ogg`, `.opus`, `.m4a`, `.aac`,
 `.webm`, `.mp4`, `.mkv`.
 
@@ -92,30 +83,18 @@ mkdir -p music
 cp ~/Music/*.mp3 music/
 ```
 
-### 6. Keyboard input permission
+### Manual Python setup
 
-Global hotkeys and keyboard sounds use `evdev`, which reads `/dev/input/event*`
-directly. Your user needs permission to do this.
+If you prefer to manage setup yourself, install the native dependencies and
+keyboard permissions first, then run:
 
-The simplest approach on most distros:
 ```bash
-sudo usermod -aG input "$USER"
+uv venv --python 3.14t
+uv pip install -r requirements.txt
+PYTHON_GIL=0 uv run python -c "import sys, yaml, numpy, sounddevice, soundfile, evdev, pulsectl, textual; print('GIL:', sys._is_gil_enabled())"
 ```
 
-Then **fully log out and log back in** (a new terminal is not enough). Verify with:
-```bash
-id   # should include "input" in the groups list
-```
-
-To test without logging out:
-```bash
-newgrp input
-uv run bgmusic.py
-```
-
-If you add a udev rule instead, the app does not grab or block the keyboard — normal
-typing continues to work. See `ls -l /dev/input/event*`; expected permissions are
-`crw-rw----` with group `input`.
+Expected output: `GIL: False`.
 
 ## Running the Daemon
 
@@ -125,10 +104,11 @@ typing continues to work. See `ls -l /dev/input/event*`; expected permissions ar
 ./run.sh
 ```
 
-`run.sh` sets `PYTHON_GIL=0` and passes all arguments through to `bgmusic.py`. This
-ensures the GIL stays off even when evdev asks to re-enable it.
+`run.sh` performs setup checks, sets `PYTHON_GIL=0`, and passes application
+arguments through to `bgmusic.py`. The GIL stays off even when evdev asks to
+re-enable it.
 
-### Alternative (standard Python fallback)
+### Direct launch (after manual setup)
 
 ```bash
 uv run bgmusic.py

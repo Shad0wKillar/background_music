@@ -30,19 +30,23 @@ browser playback.
 
 ## Keyboard Sounds Or Hotkeys Do Not Work
 
-Check that your user is in the `input` group:
+Run the setup check in an interactive terminal:
 
 ```bash
-id
+./run.sh --setup
 ```
 
-If not, run:
+It checks raw keyboard device access, prepares the `input` group when needed,
+and verifies the audio connection. Start with `./run.sh` afterward. The launcher
+can activate the group for the app immediately; fully logging out and back in
+makes it available to all future terminals as well.
 
-```bash
-sudo usermod -aG input "$USER"
-```
+The TUI's `?`, `p`, and `a` keys use terminal input. They can work even when
+global shortcuts such as Alt+P cannot read `/dev/input`. Hyprland/XKB remapping
+does not change the raw key codes used by these global shortcuts.
 
-Then fully log out and back in.
+Do not run the entire app as root. Only the launcher's system setup operations
+need elevated privileges.
 
 ## Crackling Or Audio Dropouts
 
